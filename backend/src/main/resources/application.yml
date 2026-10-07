@@ -1,0 +1,88 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: ai-table
+
+  # ---------- MySQL ----------
+  # 下面这些 ${XXX:默认值} 表示"优先读环境变量，读不到就用默认值"。
+  # 默认值就是本机开发用的配置，所以本地跑不用改任何东西；
+  # 用 Docker 跑时由 docker-compose.yml 通过环境变量传进来。
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:ai_table}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    hikari:
+      pool-name: AiTableHikariPool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
+
+  # ---------- Redis ----------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+  # ---------- JSON ----------
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+# ---------- MyBatis-Plus ----------
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.aitable.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+
+# ---------- 业务配置 ----------
+ai-table:
+  # 管理员用户名（多个用逗号分隔）。用这些用户名登录时，账号会（自动）获得管理员角色，
+  # 登录后就能看到管理后台。默认用 admin。
+  admin-usernames: admin
+
+  # 用户上传的文件（头像等）存哪里。相对路径是相对启动目录，
+  # 用 java -jar 启动时就是 jar 所在的那个目录
+  upload:
+    dir: ./uploads
+
+  room:
+    # 房间里所有人都离线超过这么多秒，就自动关掉并删除这个房间，把资源释放出来
+    idle-close-seconds: 60
+    # 多久检查一次（毫秒）
+    idle-check-interval-ms: 30000
+
+  game:
+    # 每个需要玩家操作的步骤最多等多少秒，超时自动跳过：
+    #   夜晚 → 空刀 / 跳过查验 / 视为不用药
+    #   发言 → 记为"（超时未发言）"轮到下一个人
+    #   投票 → 未投票视为弃权
+    action-timeout-seconds: 90
+    # 多久扫描一次超时情况（毫秒）
+    timeout-check-interval-ms: 2000
+
+# ---------- 日志 ----------
+logging:
+  level:
+    root: info
+    com.aitable: debug

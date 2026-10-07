@@ -1,0 +1,84 @@
+# ============================================================
+#  ai-table —— 一条命令跑起来
+#
+#     docker compose up -d
+#
+#  然后浏览器打开： http://localhost:8080
+#
+#  三个容器：
+#    mysql  数据库（首次启动会自动建库建表）
+#    redis  缓存 + 登录 token
+#    app    游戏本体（前端页面也打包在里面，所以只要这一个端口）
+#
+#  停掉：        docker compose down
+#  连数据一起删： docker compose down -v
+# ============================================================
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: ai-table-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: aitable123
+      MYSQL_DATABASE: ai_table
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 数据库第一次初始化时自动执行建表脚本，不用手动建表
+      - ./backend/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-paitable123"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-table-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-table-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # 这些值会被 application.yml 里的 ${DB_HOST:...} 读到
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ai_table
+      DB_USERNAME: root
+      DB_PASSWORD: aitable123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TZ: Asia/Shanghai
+    volumes:
+      # 玩家上传的头像放这里，重建容器不会丢
+      - uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:
+  uploads:

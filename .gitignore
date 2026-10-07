@@ -1,0 +1,24 @@
+# ---------- 依赖和编译产物 ----------
+node_modules/
+dist/
+target/
+.build-tmp/
+uploads/
+
+# ---------- 运行时产生的文件 ----------
+*.log
+*.err
+.run.log
+.run.err
+
+# ---------- 开发工具 ----------
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# ---------- 本地环境配置（各人不一样，不要提交）----------
+# 如果需要放自己的数据库密码等，复制一份再改，别提交这一份
+application-local.yml
+.env
+.env.local

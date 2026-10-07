@@ -1,0 +1,24 @@
+# 构建镜像时不需要传给 Docker 的东西（它们会在镜像里重新生成）
+
+# 依赖和编译产物
+**/node_modules
+**/target
+**/dist
+**/.build-tmp
+**/uploads
+
+# 运行时产生的文件
+**/*.log
+**/*.err
+
+# 版本存档（属于开发者的本地东西，不该进镜像）
+versions
+
+# 编辑器和 Git
+.git
+.gitignore
+.idea
+.vscode
+
+# 文档
+docs

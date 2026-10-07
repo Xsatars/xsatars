@@ -1,0 +1,19 @@
+/* 全局基础样式 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', Helvetica, Arial, sans-serif;
+  background-color: #f5f7fa;
+  color: #303133;
+}

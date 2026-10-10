@@ -10,6 +10,7 @@ import type {
   PlayerPrivateState,
   PublicGameState,
   RoleAssignData,
+  VoteResultData,
   WsMessage
 } from '@/types'
 
@@ -17,7 +18,7 @@ import type {
 export interface GameLog {
   time: string
   text: string
-  kind: 'system' | 'phase' | 'death' | 'speak' | 'vote'
+  kind: 'system' | 'phase' | 'death' | 'speak' | 'vote' | 'host'
 }
 
 /**
@@ -37,6 +38,12 @@ export const useGameStore = defineStore('game', () => {
   const roleCard = ref<RoleAssignData | null>(null)
   const logs = ref<GameLog[]>([])
   const endResult = ref<GameEndData | null>(null)
+  /** 主持人最近说的一句话（在界面上单独醒目显示） */
+  const hostLine = ref<{ text: string; moment: string } | null>(null)
+  /** AI 的局后复盘：座位号 → 那句话 */
+  const reflections = ref<Record<string, string>>({})
+  /** 最近一次投票结果（用来弹"谁出局了"） */
+  const voteResult = ref<VoteResultData | null>(null)
   const selectedSeat = ref<number | null>(null)
   const connected = ref(false)
   const loaded = ref(false)
@@ -47,7 +54,9 @@ export const useGameStore = defineStore('game', () => {
 
   /** 现在这一步需要我选一个目标吗 */
   const needTarget = computed(() =>
-    actions.value.some((a) => ['WEREWOLF_KILL', 'SEER_CHECK', 'WITCH_POISON', 'VOTE'].includes(a))
+    actions.value.some((a) =>
+      ['HUNTER_SHOOT', 'WEREWOLF_KILL', 'SEER_CHECK', 'WITCH_POISON', 'VOTE'].includes(a)
+    )
   )
 
   function pushLog(text: string, kind: GameLog['kind'] = 'system') {
@@ -66,6 +75,46 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
+  /** 阶段推进的先后顺序（用来判断一份快照是不是"退回去了"） */
+  const PHASE_ORDER: Record<string, number> = {
+    WAITING: 0,
+    NIGHT: 1,
+    DAY: 2,
+    HUNTER_SHOOT: 3,
+    DAY_DISCUSSION: 4,
+    DAY_VOTE: 5,
+    FINISHED: 6
+  }
+
+  /**
+   * 装一份公开状态。
+   *
+   * 之前用过 stateSeq 版本号来"丢旧快照"，但那个判断有个天然坑：
+   * 同一批事件里 PHASE_CHANGE 的版本号总比 GAME_STATE_UPDATE 小 1
+   * （前者在状态推进**之前**生成、后者在**之后**组装），
+   * 任何"比当前小就丢"的规则都可能误杀 PHASE_CHANGE ——
+   * 而 PHASE_CHANGE 才是"阶段刚变"的那条，被误杀的表现就是
+   * "右侧日志已经到女巫了，上方提示还停在狼人，两三秒后才追上"。
+   *
+   * 现在改成**按语义判断**：只有"同一轮里阶段倒退"才算过期快照
+   * （比如白天收到一份写着夜晚的）。跨轮次的一律接受，
+   * 因为新的一轮 NIGHT 在数值上比上一轮 FINISHED 小，但那不是过期。
+   */
+  function applyPublicState(next?: PublicGameState) {
+    if (!next) {
+      return
+    }
+    const current = publicState.value
+    if (current && next.round === current.round) {
+      const before = PHASE_ORDER[current.phase] ?? 0
+      const now = PHASE_ORDER[next.phase] ?? 0
+      if (now < before) {
+        return // 同一轮里阶段倒退了 —— 这才是迟到的旧快照
+      }
+    }
+    publicState.value = next
+  }
+
   /** 处理服务器推来的消息 */
   function onWsMessage(message: WsMessage) {
     switch (message.type) {
@@ -76,9 +125,8 @@ export const useGameStore = defineStore('game', () => {
 
       case 'GAME_STATE_UPDATE': {
         const view = message.data as GameView
-        if (view?.publicState) {
-          publicState.value = view.publicState
-        }
+        // 用统一的入口装状态：它会丢掉版本号更低的旧快照
+        applyPublicState(view?.publicState)
         if (view?.privateState) {
           privateState.value = view.privateState
           // 选中的目标如果已经不能选了（死了 / 不是这个阶段），清掉选中
@@ -92,9 +140,16 @@ export const useGameStore = defineStore('game', () => {
         break
       }
 
-      case 'PHASE_CHANGE':
+      case 'PHASE_CHANGE': {
+        // ★ 阶段一变，立刻把消息里带的公开状态装进来。
+        //
+        // 后端在 PHASE_CHANGE 的 payload 里放了完整的 publicState（含 nightActor、
+        // 轮次、存活座位…），之前这里只 pushLog 就完事了 —— 等于把它丢掉了，
+        // 导致"夜晚提示慢半拍"：后端已经切到下一个角色，界面还显示上一个。
+        applyPublicState(message.data as PublicGameState | undefined)
         pushLog(message.message || '阶段变化', 'phase')
         break
+      }
 
       case 'NIGHT_RESULT':
         pushLog(message.message || '夜晚结果', 'death')
@@ -114,14 +169,35 @@ export const useGameStore = defineStore('game', () => {
         pushLog(message.message || '有人投票', 'vote')
         break
 
-      case 'VOTE_RESULT':
+      case 'VOTE_RESULT': {
+        // 投票结果：给所有人弹一下"谁出局了" —— 光滚在日志里很容易被忽略
+        voteResult.value = (message.data ?? {}) as VoteResultData
         pushLog(message.message || '投票结果', 'vote')
         break
+      }
 
       case 'GAME_END':
         endResult.value = message.data as GameEndData
         pushLog(message.message || '游戏结束', 'system')
         break
+
+      case 'HOST_SAY': {
+        // 主持人的解说：进日志，同时在界面上单独醒目显示一下
+        const data = (message.data ?? {}) as { text?: string; moment?: string }
+        const text = data.text || message.message || ''
+        if (text) {
+          hostLine.value = { text, moment: data.moment || '' }
+          pushLog('🎙 ' + text, 'host')
+        }
+        break
+      }
+
+      case 'AI_REFLECTION': {
+        // 局后复盘：AI 反省自己这一局。结算面板收到后补上这段
+        const data = (message.data ?? {}) as { reflections?: Record<string, string> }
+        reflections.value = data.reflections ?? {}
+        break
+      }
 
       case 'ERROR':
         ElMessage.warning(message.message || '操作失败')
@@ -150,6 +226,20 @@ export const useGameStore = defineStore('game', () => {
     privateState.value = view.privateState
     roomId.value = view.publicState.roomId
     loaded.value = true
+
+    // 把身份牌补回来。
+    // ★ 必须补：ROLE_ASSIGN 那条消息在开局时就发过了，刷新页面 / 晚点进游戏页的人
+    //   根本收不到它 —— 之前就是因此导致"刷新后看不到自己的身份卡"。
+    //   私人状态里本来就带着身份信息，从这儿重建一份最省事。
+    if (view.privateState && view.privateState.myRole) {
+      roleCard.value = {
+        seatNo: view.privateState.mySeat,
+        role: view.privateState.myRole,
+        roleLabel: view.privateState.myRoleLabel,
+        camp: view.privateState.myCamp,
+        teammateSeats: view.privateState.teammateSeats
+      }
+    }
 
     await wsClient.connect(auth.token)
     connected.value = wsClient.isConnected()
@@ -203,7 +293,7 @@ export const useGameStore = defineStore('game', () => {
       return
     }
     const act = actions.value.find((a) =>
-      ['WEREWOLF_KILL', 'SEER_CHECK', 'WITCH_POISON', 'VOTE'].includes(a))
+      ['HUNTER_SHOOT', 'WEREWOLF_KILL', 'SEER_CHECK', 'WITCH_POISON', 'VOTE'].includes(a))
     if (!act) {
       return
     }
@@ -240,6 +330,9 @@ export const useGameStore = defineStore('game', () => {
     roleCard,
     logs,
     endResult,
+    hostLine,
+    reflections,
+    voteResult,
     selectedSeat,
     connected,
     loaded,

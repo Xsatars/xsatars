@@ -1,6 +1,7 @@
 package com.aitable.game.werewolf;
 
 import com.aitable.common.enums.Role;
+import com.aitable.game.ai.AiPersona;
 
 /**
  * 一局游戏里的玩家（坐在某个座位上的人 + 他的身份）。
@@ -22,6 +23,15 @@ public class WerewolfPlayer {
     /** 是否存活 */
     private boolean alive = true;
 
+    /**
+     * 怎么出局的：{@code WOLF}（被狼刀）/ {@code POISON}（被女巫毒杀）
+     * / {@code VOTE}（被投票放逐）/ {@code HUNTER}（被猎人开枪带走）。存活时为 null。
+     *
+     * <p><b>为什么要专门记这个</b>：猎人被狼刀死、被票出局<b>都能开枪</b>，
+     * 但被女巫毒死<b>不能</b> —— 判定就靠这个字段，不能只看"他死了"。</p>
+     */
+    private String deathReason;
+
     /** 本轮是否已经发过言 */
     private boolean spoke = false;
 
@@ -33,6 +43,16 @@ public class WerewolfPlayer {
 
     /** 头像地址；为空表示还没设置头像 */
     private String avatar;
+
+    /** 是不是 AI 玩家（真人由用户操作，AI 由程序决策） */
+    private boolean ai;
+
+    /**
+     * AI 的人设（名字、口吻、行为倾向）。
+     *
+     * <p>规则 AI 用它来决定"多激进"，大模型 AI 用它来写提示词。真人玩家这里是 null。</p>
+     */
+    private AiPersona persona;
 
     public WerewolfPlayer(int seatNo, Long userId, String nickname) {
         this.seatNo = seatNo;
@@ -66,6 +86,20 @@ public class WerewolfPlayer {
 
     public void setAlive(boolean alive) {
         this.alive = alive;
+    }
+
+    public String getDeathReason() {
+        return deathReason;
+    }
+
+    public void setDeathReason(String deathReason) {
+        this.deathReason = deathReason;
+    }
+
+    /** 出局并记下原因（存活状态和原因必须一起改，免得出现"死了但不知道咋死的"） */
+    public void die(String reason) {
+        this.alive = false;
+        this.deathReason = reason;
     }
 
     public boolean isSpoke() {
@@ -103,5 +137,21 @@ public class WerewolfPlayer {
 
     public void setAvatar(String avatar) {
         this.avatar = avatar;
+    }
+
+    public boolean isAi() {
+        return ai;
+    }
+
+    public void setAi(boolean ai) {
+        this.ai = ai;
+    }
+
+    public AiPersona getPersona() {
+        return persona;
+    }
+
+    public void setPersona(AiPersona persona) {
+        this.persona = persona;
     }
 }

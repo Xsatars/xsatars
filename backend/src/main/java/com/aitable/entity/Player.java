@@ -29,6 +29,19 @@ public class Player {
     /** 是否已准备：1=已准备 0=未准备 */
     private Integer ready;
 
+    /**
+     * 是否 AI 玩家：1=AI 0=真人。
+     *
+     * <p>AI 玩家没有真实账号，所以 {@code userId} 是 null，名字从 {@link #aiName} 取。</p>
+     */
+    private Integer isAi;
+
+    /** AI 的名字（真人玩家用 users.nickname，这里是 null） */
+    private String aiName;
+
+    /** AI 的性格标识（对应 AiPersona 枚举，如 HOTHEAD / SNEAKY）；真人这里是 null */
+    private String aiPersona;
+
     private LocalDateTime joinedAt;
 
     /** 离开房间的时间，未离开为 null */
@@ -72,6 +85,35 @@ public class Player {
 
     public void setReady(Integer ready) {
         this.ready = ready;
+    }
+
+    /** 这个席位是不是 AI 玩家 */
+    public boolean isAiPlayer() {
+        return isAi != null && isAi == 1;
+    }
+
+    public Integer getIsAi() {
+        return isAi;
+    }
+
+    public void setIsAi(Integer isAi) {
+        this.isAi = isAi;
+    }
+
+    public String getAiName() {
+        return aiName;
+    }
+
+    public void setAiName(String aiName) {
+        this.aiName = aiName;
+    }
+
+    public String getAiPersona() {
+        return aiPersona;
+    }
+
+    public void setAiPersona(String aiPersona) {
+        this.aiPersona = aiPersona;
     }
 
     public LocalDateTime getJoinedAt() {

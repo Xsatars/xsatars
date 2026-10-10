@@ -79,34 +79,80 @@ public class WerewolfEngine implements GameEngine {
     /** 每个需要玩家操作的步骤最多等多少毫秒；<=0 表示不启用超时 */
     private final long timeoutMillis;
 
+    /**
+     * 投票阶段的时限（毫秒）。
+     *
+     * <p>投票是"大家一起投"，20 秒足够；不像发言那样要一个人一个人等。</p>
+     */
+    private static final long VOTE_TIMEOUT_MILLIS = 20_000L;
+
+    /** 用的板子 —— 决定这局几个人、有哪些角色 */
+    private final Board board;
+
+    /** 死因：被狼刀 */
+    public static final String DEATH_WOLF = "WOLF";
+    /** 死因：被女巫毒杀 —— 猎人因此开不了枪 */
+    public static final String DEATH_POISON = "POISON";
+    /** 死因：被投票放逐 */
+    public static final String DEATH_VOTE = "VOTE";
+    /** 死因：被猎人开枪带走 */
+    public static final String DEATH_HUNTER = "HUNTER";
+
     public WerewolfEngine(WerewolfState state) {
-        this(state, new Random(), DEFAULT_TIMEOUT_SECONDS);
+        this(state, new Random(), DEFAULT_TIMEOUT_SECONDS, Board.DEFAULT);
     }
 
     public WerewolfEngine(WerewolfState state, Random random) {
-        this(state, random, DEFAULT_TIMEOUT_SECONDS);
+        this(state, random, DEFAULT_TIMEOUT_SECONDS, Board.DEFAULT);
     }
 
     public WerewolfEngine(WerewolfState state, Random random, int timeoutSeconds) {
+        this(state, random, timeoutSeconds, Board.DEFAULT);
+    }
+
+    public WerewolfEngine(WerewolfState state, Random random, int timeoutSeconds, Board board) {
         this.state = state;
         this.random = random;
         this.timeoutMillis = Math.max(timeoutSeconds, 0) * 1000L;
+        this.board = board == null ? Board.DEFAULT : board;
+    }
+
+    /** 这局用的板子 */
+    public Board getBoard() {
+        return board;
     }
 
     /** 造一个引擎（开局前调用） */
     public static WerewolfEngine create(Long gameId, Long roomId, List<WerewolfPlayer> players) {
-        return create(gameId, roomId, players, DEFAULT_TIMEOUT_SECONDS);
+        return create(gameId, roomId, players, DEFAULT_TIMEOUT_SECONDS, Board.DEFAULT);
     }
 
     public static WerewolfEngine create(Long gameId, Long roomId, List<WerewolfPlayer> players, int timeoutSeconds) {
+        return create(gameId, roomId, players, timeoutSeconds, Board.DEFAULT);
+    }
+
+    /** 造一个引擎，指定板子（8 人局走这个） */
+    public static WerewolfEngine create(Long gameId, Long roomId, List<WerewolfPlayer> players,
+                                        int timeoutSeconds, Board board) {
+        Board actual = board == null ? Board.DEFAULT : board;
         WerewolfState state = new WerewolfState(gameId, roomId);
         state.getPlayers().addAll(players);
         state.getPlayers().sort((a, b) -> Integer.compare(a.getSeatNo(), b.getSeatNo()));
-        return new WerewolfEngine(state, new Random(), timeoutSeconds);
+        return new WerewolfEngine(state, new Random(), timeoutSeconds, actual);
     }
 
     public WerewolfState getState() {
         return state;
+    }
+
+    /**
+     * 装入"这个房间之前几局"的战绩摘要，作为 AI 的<b>跨局记忆</b>。
+     *
+     * <p>开局前调用一次。有了它，AI 才能说出"上一局 3 号就是狼，这次别信他"这种话 ——
+     * 真人玩家本来就记得这些，AI 也该记得。只发给 AI，真人的 view 里没有。</p>
+     */
+    public void loadRoomHistory(java.util.List<String> history) {
+        state.setRoomHistory(history);
     }
 
     @Override
@@ -147,31 +193,25 @@ public class WerewolfEngine implements GameEngine {
         }
 
         events.add(GameEvent.publicEvent("PHASE_CHANGE", publicState(), "第 1 夜：天黑请闭眼"));
+        // 开局就播报第一个角色的动作（"狼人请睁眼"）。
+        // 不能指望 moveToNightStep 来报——nightStep 的初始值本来就是 WOLF，
+        // 它那句"值没变就不播报"的判断会把这一步吞掉。
+        String firstAnnounce = announceNightStep(state.getNightStep());
+        state.addMessage(firstAnnounce);
+        events.add(GameEvent.publicEvent("PHASE_CHANGE", publicState(), firstAnnounce));
         refreshDeadline();
         log.info("对局 {} 开始，共 {} 名玩家", state.getGameId(), state.getPlayers().size());
         return events;
     }
 
-    /** 洗牌发身份：2 狼 + 1 预言家 + 1 女巫 + 2 平民 */
+    /** 洗牌发身份 —— 发什么牌由当前板子决定（6 人局没有猎人，8 人局有） */
     private void assignRoles() {
-        List<Role> deck = new ArrayList<>();
-        for (int i = 0; i < GameConstants.WEREWOLF_6_WOLF_COUNT; i++) {
-            deck.add(Role.WOLF);
-        }
-        for (int i = 0; i < GameConstants.WEREWOLF_6_SEER_COUNT; i++) {
-            deck.add(Role.SEER);
-        }
-        for (int i = 0; i < GameConstants.WEREWOLF_6_WITCH_COUNT; i++) {
-            deck.add(Role.WITCH);
-        }
-        for (int i = 0; i < GameConstants.WEREWOLF_6_VILLAGER_COUNT; i++) {
-            deck.add(Role.VILLAGER);
-        }
-        Collections.shuffle(deck, random);
+        List<Role> deck = board.buildDeck(random);
 
         List<WerewolfPlayer> players = state.getPlayers();
         if (deck.size() != players.size()) {
-            throw new IllegalStateException("角色数量(" + deck.size() + ")和玩家数量(" + players.size() + ")对不上");
+            throw new IllegalStateException("板子【" + board.getLabel() + "】需要 " + deck.size()
+                    + " 个人，实际来了 " + players.size() + " 个");
         }
         for (int i = 0; i < players.size(); i++) {
             players.get(i).setRole(deck.get(i));
@@ -202,11 +242,17 @@ public class WerewolfEngine implements GameEngine {
             case WITCH_POISON -> handleWitchPoison(player, request.getTargetSeat());
             case SPEAK -> handleSpeak(player, request.getText());
             case VOTE -> handleVote(player, request.getTargetSeat());
+            case HUNTER_SHOOT -> handleHunterShoot(player, request);
             case PASS -> handlePass(player);
         };
 
         // 有人在正常操作，就把超时时间往后推，免得"正打着突然被判超时"
         if (result.isSuccess()) {
+            // ★ 状态版本号 +1。
+            // 它会在这一刻之后生成的所有快照里（PHASE_CHANGE / GAME_STATE_UPDATE…）
+            // 带上，前端据此丢弃"迟到"的旧快照 ——
+            // 否则旧快照会覆盖新状态，出现"白天闪一下狼人刀人"这种鬼影。
+            state.bumpStateSeq();
             refreshDeadline();
         }
         return result;
@@ -282,10 +328,9 @@ public class WerewolfEngine implements GameEngine {
         if (state.getWolfTarget() == null) {
             return ActionResult.fail("今晚还没有人被袭击，暂时不能用解药");
         }
-        if (state.getWolfTarget().equals(player.getSeatNo())) {
-            // 常见规则：女巫不能自救。想改成允许自救，把这段删掉即可。
-            return ActionResult.fail("不能使用解药救自己");
-        }
+        // 女巫可以自救：被刀的就是她自己时也能用解药。
+        // （早期版本按"常见规则"禁止了自救，实测下来"女巫第一晚被刀就直接废掉"太伤，
+        //   而且真人玩的时候也常允许自救，所以放开。）
 
         int saved = state.getWolfTarget();
         state.setWitchSavedSeat(saved);
@@ -326,6 +371,12 @@ public class WerewolfEngine implements GameEngine {
 
     /** 通用的"跳过"：女巫不用药 / 放弃发言 / 投票弃权 */
     private ActionResult handlePass(WerewolfPlayer player) {
+        // ⓪ 猎人开枪环节：放弃开枪（他出局了，"过"就是不开枪）
+        if (state.getPhase() == GamePhase.HUNTER_SHOOT) {
+            return handleHunterShoot(player,
+                    ActionRequest.of(player.getSeatNo(), ActionType.PASS, null));
+        }
+
         // ① 夜晚：女巫今晚不用药
         if (state.getPhase() == GamePhase.NIGHT && player.getRole() == Role.WITCH) {
             ActionResult invalid = requireWitchAction(player);
@@ -400,6 +451,8 @@ public class WerewolfEngine implements GameEngine {
         speech.put("nickname", player.getNickname());
         speech.put("text", trimmed);
         state.getSpeeches().add(speech);
+        // 同时记进"跨轮保留的历史" —— AI 靠它形成记忆，发言时能引用前面几轮的话
+        state.recordSpeech(state.getRound(), player.getSeatNo(), player.getNickname(), trimmed);
         player.setSpoke(true);
         state.setSpeakIndex(state.getSpeakIndex() + 1);
 
@@ -489,7 +542,10 @@ public class WerewolfEngine implements GameEngine {
         if (top.size() > 1) {
             // 狼人意见不统一（票数一样多）→ 今晚不刀人
             state.setWolfTarget(null);
-            events.add(GameEvent.publicEvent("NIGHT_RESULT",
+            // 用一个**独立**的事件类型：以前这里复用了 NIGHT_RESULT，
+            // 结果主持人（和别的按类型分发的逻辑）会把它误当成"天亮结算"，
+            // 于是明明死了人却说成平安夜。语义不同就该用不同的类型。
+            events.add(GameEvent.publicEvent("WOLF_NO_KILL",
                     Map.of("wolfNoKill", true, "reason", "SPLIT"),
                     "狼人意见不统一，今晚没有刀人"));
             return;
@@ -522,17 +578,17 @@ public class WerewolfEngine implements GameEngine {
 
         // ① 狼人：都决定了才轮到下一步
         if (!state.aliveWolves().isEmpty() && !state.isWolfDecided()) {
-            moveToNightStep(NightStep.WOLF);
+            moveToNightStep(NightStep.WOLF, events);
             return;
         }
         // ② 女巫
         if (state.findAliveByRole(Role.WITCH) != null && !state.isWitchActed()) {
-            moveToNightStep(NightStep.WITCH);
+            moveToNightStep(NightStep.WITCH, events);
             return;
         }
         // ③ 预言家
         if (state.findAliveByRole(Role.SEER) != null && !state.isSeerActed()) {
-            moveToNightStep(NightStep.SEER);
+            moveToNightStep(NightStep.SEER, events);
             return;
         }
         settleNight(events);
@@ -541,13 +597,141 @@ public class WerewolfEngine implements GameEngine {
     /**
      * 换到夜晚的下一步，并重置超时时间。
      *
-     * <p>这里<b>故意不写公开消息</b>——"现在轮到谁行动"是机密信息，
-     * 只通过每个人自己的 hint 告诉他。</p>
+     * <p>会公开发一句"狼人请睁眼…"—— 这跟真人玩的时候主持人喊话一个道理：
+     * 大家知道现在轮到哪个角色了，但<b>不会</b>泄露他选了谁。
+     * 有了这句播报，围观的人和出局的人才知道场上进行到哪一步，不至于一片空白。</p>
      */
-    private void moveToNightStep(NightStep step) {
+    private void moveToNightStep(NightStep step, List<GameEvent> events) {
         if (state.getNightStep() != step) {
             state.setNightStep(step);
             refreshDeadline();
+            String announce = announceNightStep(step);
+            // 两件事都要做：进游戏日志（所有人翻记录能看到）+ 广播出去（前端实时显示）
+            state.addMessage(announce);
+            events.add(GameEvent.publicEvent("PHASE_CHANGE", publicState(), announce));
+        }
+    }
+
+    /** 夜晚每一步的公开播报（只报"轮到谁"，不含任何机密目标） */
+    private String announceNightStep(NightStep step) {
+        return switch (step) {
+            case WOLF -> "狼人请睁眼，狼队请选择今晚要击杀的人";
+            case WITCH -> "女巫请睁眼，你有一瓶解药和一瓶毒药";
+            case SEER -> "预言家请睁眼，请选择你要查验的人";
+        };
+    }
+
+    // ============================================================
+    // 猎人开枪（8 人局）
+    // ============================================================
+
+    /** 等着开枪的猎人座位；null 表示没有待处理的 */
+    private Integer pendingHunterSeat;
+
+    /** 猎人是在哪一步出局的：NIGHT / VOTE —— 开完枪要回到对应的流程继续走 */
+    private String hunterDeathSource;
+
+    /** 还有猎人在等着开枪吗 */
+    public boolean isWaitingForHunter() {
+        return pendingHunterSeat != null;
+    }
+
+    public Integer getPendingHunterSeat() {
+        return pendingHunterSeat;
+    }
+
+    /**
+     * 死者里有猎人吗？有就开一个"开枪"环节，整个流程在这里<b>暂停</b>。
+     *
+     * <p>标准规则：被狼刀死、被投票放逐的猎人都能开枪；<b>被女巫毒死的不能</b> ——
+     * 毒药会让技能失效，这也是狼队反制猎人的办法（前提是他们猜得到谁是猎人）。</p>
+     *
+     * @return true = 已经停下来等开枪了，调用方要立刻 return，别再往下走
+     */
+    private boolean openHunterShoot(List<Integer> deaths, String source, List<GameEvent> events) {
+        for (Integer seat : deaths) {
+            WerewolfPlayer dead = state.findBySeat(seat);
+            if (dead == null || dead.getRole() != Role.HUNTER) {
+                continue;
+            }
+            if (DEATH_POISON.equals(dead.getDeathReason())) {
+                String msg = dead.getNickname() + "（" + seat + " 号）被毒杀，猎人来不及开枪";
+                state.addMessage(msg);
+                events.add(GameEvent.publicEvent("HUNTER_CANNOT_SHOOT",
+                        Map.of("seatNo", seat), msg));
+                continue;
+            }
+            pendingHunterSeat = seat;
+            hunterDeathSource = source;
+            state.setPhase(GamePhase.HUNTER_SHOOT);
+            refreshDeadline();
+            String text = "🔫 " + dead.getNickname() + "（" + seat + " 号）是猎人，可以开枪带走一个人";
+            state.addMessage(text);
+            events.add(GameEvent.publicEvent("HUNTER_SHOOT",
+                    Map.of("seatNo", seat, "nickname", dead.getNickname()), text));
+            return true;
+        }
+        return false;
+    }
+
+    /** 猎人开枪（或者放弃） */
+    private ActionResult handleHunterShoot(WerewolfPlayer player, ActionRequest request) {
+        if (pendingHunterSeat == null || player.getSeatNo() != pendingHunterSeat) {
+            return ActionResult.fail("现在不是你开枪");
+        }
+
+        List<GameEvent> events = new ArrayList<>();
+        boolean giveUp = request.getType() == ActionType.PASS || request.getTargetSeat() == null;
+
+        if (!giveUp) {
+            WerewolfPlayer target = state.findBySeat(request.getTargetSeat());
+            if (target == null) {
+                return ActionResult.fail("查无此人");
+            }
+            if (!target.isAlive()) {
+                return ActionResult.fail("不能对已经出局的人开枪");
+            }
+            if (target.getSeatNo() == player.getSeatNo()) {
+                return ActionResult.fail("不能对自己开枪");
+            }
+            target.die(DEATH_HUNTER);
+            String text = "🔫 " + player.getNickname() + "（" + player.getSeatNo()
+                    + " 号）开枪带走了 " + target.getNickname() + "（" + target.getSeatNo() + " 号）";
+            state.addMessage(text);
+            events.add(GameEvent.publicEvent("HUNTER_SHOOT_RESULT",
+                    Map.of("hunterSeat", player.getSeatNo(),
+                            "targetSeat", target.getSeatNo(),
+                            "targetNickname", target.getNickname()), text));
+
+            Map<String, Object> deadData = new LinkedHashMap<>();
+            deadData.put("seatNo", target.getSeatNo());
+            deadData.put("nickname", target.getNickname());
+            deadData.put("reason", "HUNTER");
+            events.add(GameEvent.publicEvent("PLAYER_DEAD", deadData,
+                    target.getNickname() + "（" + target.getSeatNo() + " 号）出局了"));
+        } else {
+            String text = "🔫 " + player.getNickname() + "（" + player.getSeatNo() + " 号）选择不开枪";
+            state.addMessage(text);
+            events.add(GameEvent.publicEvent("HUNTER_SHOOT_RESULT",
+                    Map.of("hunterSeat", player.getSeatNo(), "targetSeat", 0), text));
+        }
+
+        // 收尾：清掉待处理状态，回到他出局前的那条流程上继续
+        String source = hunterDeathSource;
+        pendingHunterSeat = null;
+        hunterDeathSource = null;
+        resumeAfterHunter(source, events);
+        return ActionResult.ok("", events);
+    }
+
+    /** 猎人开完枪了，接着往下走 */
+    private void resumeAfterHunter(String source, List<GameEvent> events) {
+        if ("VOTE".equals(source)) {
+            // 投票环节：接着做原来放逐之后该做的事
+            afterVoteExile(events);
+        } else {
+            // 夜晚环节：该进白天了
+            enterDayAfterNight(events);
         }
     }
 
@@ -570,7 +754,8 @@ public class WerewolfEngine implements GameEngine {
         for (Integer seat : deaths) {
             WerewolfPlayer dead = state.findBySeat(seat);
             if (dead != null) {
-                dead.setAlive(false);
+                // 死因要分清：被毒死和被刀死对猎人来说是两回事（毒死不能开枪）
+                dead.die(seat.equals(state.getWitchPoisonSeat()) ? DEATH_POISON : DEATH_WOLF);
             }
         }
 
@@ -596,6 +781,21 @@ public class WerewolfEngine implements GameEngine {
                     dead.getNickname() + "（" + seat + " 号）出局了"));
         }
 
+        // ★ 昨晚倒牌的是猎人？先把枪开完，再进白天公布后面的流程
+        if (openHunterShoot(deaths, "NIGHT", events)) {
+            return;
+        }
+
+        enterDayAfterNight(events);
+    }
+
+    /**
+     * 夜晚的死亡结算完成之后要做的事。
+     *
+     * <p>单独抽出来是因为猎人开枪会把流程岔开：他开完枪还要回到这里，
+     * 把"公布死讯 → 判胜负 → 进入发言"接着走完。</p>
+     */
+    private void enterDayAfterNight(List<GameEvent> events) {
         // 先进入"公布死讯"这一刻
         state.setPhase(GamePhase.DAY);
         events.add(GameEvent.publicEvent("PHASE_CHANGE", publicState(),
@@ -647,9 +847,16 @@ public class WerewolfEngine implements GameEngine {
         state.setPhase(GamePhase.DAY_VOTE);
         state.getDayVotes().clear();
         state.getAbstainedSeats().clear();
-        state.addMessage("发言结束，开始投票");
+        // 先清掉上一阶段留下的期限，下面 refreshDeadline 才知道"这是刚进入投票"，
+        // 从而设上 20 秒。之后无论谁投票，这个期限都不会再变。
+        state.setDeadline(0);
+        // ★ 投票是"大家一起投"，整个阶段共用一个 20 秒的期限：
+        //   这里设一次就不动了 —— 谁投票都不会把时间往后推，20 秒到点就结算。
+        //   （之前这里忘了设，投票阶段一直在用发言阶段留下的 90 秒。）
+        refreshDeadline();
+        state.addMessage("发言结束，开始投票（20 秒内投完，没投的算弃权）");
         events.add(GameEvent.publicEvent("PHASE_CHANGE", publicState(),
-                "开始投票：请选出你想放逐的人"));
+                "开始投票：请在 20 秒内选出你想放逐的人，没投票的视为弃权"));
     }
 
     /** 结算投票：票最多的人出局；平票则本轮无人出局 */
@@ -681,7 +888,7 @@ public class WerewolfEngine implements GameEngine {
         } else {
             int exiled = top.get(0);
             WerewolfPlayer target = state.findBySeat(exiled);
-            target.setAlive(false);
+            target.die(DEATH_VOTE);
             state.setExiledSeat(exiled);
             result.put("exiledSeat", exiled);
             result.put("exiledNickname", target.getNickname());
@@ -695,7 +902,25 @@ public class WerewolfEngine implements GameEngine {
             deadData.put("nickname", target.getNickname());
             deadData.put("reason", "VOTE");
             events.add(GameEvent.publicEvent("PLAYER_DEAD", deadData, target.getNickname() + " 出局了"));
+
+            // ★ 被票出去的是猎人？先让他开枪
+            if (openHunterShoot(List.of(exiled), "VOTE", events)) {
+                return;
+            }
         }
+
+        afterVoteExile(events);
+    }
+
+    /**
+     * 投票放逐结算完之后要做的事。
+     *
+     * <p>同样单独抽出来：猎人开枪会把流程岔开，他开完枪还要回到这里，
+     * 把"记投票历史 → 判胜负 → 进入下一夜"接着走完。</p>
+     */
+    private void afterVoteExile(List<GameEvent> events) {
+        // 把这一轮的投票明细记进历史 —— 这是 AI 判断"谁跟谁抱团、谁临阵改票"的关键材料
+        state.recordVote(state.getRound(), state.getDayVotes(), state.getExiledSeat());
 
         if (checkWinCondition()) {
             endGame(events);
@@ -814,11 +1039,26 @@ public class WerewolfEngine implements GameEngine {
                 state.addMessage("投票超时，未投票的玩家视为弃权");
                 settleVote(events);
             }
+            case HUNTER_SHOOT -> {
+                // 猎人超时不开枪 = 放弃开枪。
+                // 不能让全桌一直等一个已经出局的人 —— 他只是少带走一个人而已。
+                if (pendingHunterSeat != null) {
+                    state.addMessage("🔫 猎人开枪超时，视为放弃");
+                    String source = hunterDeathSource;
+                    pendingHunterSeat = null;
+                    hunterDeathSource = null;
+                    resumeAfterHunter(source, events);
+                }
+            }
             default -> {
                 return ActionResult.fail("当前阶段不需要玩家操作");
             }
         }
 
+        // 超时同样改了状态，同样会产出快照 —— 版本号也要 +1。
+        // 不然这些快照的版本号"原地踏步"，前端可能把它当成重复消息丢掉，
+        // 那样超时推进在界面上就看不到效果了。
+        state.bumpStateSeq();
         refreshDeadline();
         return ActionResult.ok("超时已自动处理", events);
     }
@@ -928,12 +1168,26 @@ public class WerewolfEngine implements GameEngine {
         events.add(GameEvent.publicEvent("PLAYER_SPEAK", speech, player.getNickname() + " " + reason));
     }
 
-    /** 把超时时间往后推（有人操作、或阶段刚变化时调用） */
+    /**
+     * 把超时时间往后推（有人操作、或阶段刚变化时调用）。
+     *
+     * <p>投票阶段用的是<b>另一套时限</b>：投票是"大家同时投"的一件事，
+     * 20 秒足够每个人点一下，拖太久只会让全桌干等。
+     * 而且这个期限<b>只在进入投票时设一次</b> —— 谁投票都不会让它顺延。</p>
+     */
     private void refreshDeadline() {
         if (timeoutMillis <= 0
                 || state.getPhase() == GamePhase.FINISHED
                 || state.getPhase() == GamePhase.WAITING) {
             state.setDeadline(0);
+            return;
+        }
+        // 投票阶段：进入那一刻设一次 20 秒，之后**谁都不许改**。
+        // 因为投票是"大家一起投"，每有人投一票就顺延的话，等于没有时限。
+        if (state.getPhase() == GamePhase.DAY_VOTE) {
+            if (state.getDeadline() <= 0) {
+                state.setDeadline(System.currentTimeMillis() + VOTE_TIMEOUT_MILLIS);
+            }
             return;
         }
         state.setDeadline(System.currentTimeMillis() + timeoutMillis);
@@ -944,22 +1198,52 @@ public class WerewolfEngine implements GameEngine {
     // ============================================================
 
     /**
+     * 立刻做一次胜负判定（包级可见，主要给测试用）。
+     *
+     * <p>正常流程里判定是挂在"死亡结算之后"自动跑的，不用手动调。
+     * 但测试常常直接把人的 alive 置 false 来造局面 —— 那样绕过了结算点，
+     * 需要一个口子把判定补上。</p>
+     */
+    boolean evaluateWinConditionNow() {
+        return checkWinCondition();
+    }
+
+    /**
      * 判定胜负，返回是否已结束。
      *
+     * <p><b>屠边</b>（线下最常用的规则）：</p>
      * <ul>
      *   <li>狼人全部出局 → 好人胜</li>
-     *   <li>狼人数量 ≥ 好人数量 → 狼人胜</li>
+     *   <li><b>所有平民死光</b> → 狼人胜（屠民）</li>
+     *   <li><b>所有神职死光</b> → 狼人胜（屠神）</li>
      * </ul>
+     *
+     * <p>为什么换掉原来那套"狼数 ≥ 好人数"：那样 6 人局要杀到只剩 2 个好人、
+     * 8 人局更久，一局又长又黏；而且狼队没有明确的战术目标，只能硬拼人头。
+     * 屠边贴合线下玩法 —— 狼队要么把平民清干净，要么把神职清干净，
+     * 每一刀、每一次投票都得想清楚"我们离哪条边更近"。</p>
+     *
+     * <p><b>先判"狼全死"</b>：万一最后一个狼和最后一批好人同归于尽
+     * （比如猎人开枪带走最后的狼，而平民也已经死光），应该算好人赢 ——
+     * 狼是"被杀光才算输"的那一方，先判它。</p>
      */
     private boolean checkWinCondition() {
-        int wolves = state.countAliveByCamp(Camp.WOLF);
-        int good = state.countAliveByCamp(Camp.GOOD);
-
-        if (wolves == 0) {
+        if (state.countAliveByCamp(Camp.WOLF) == 0) {
             state.setWinnerCamp(Camp.GOOD.name());
             return true;
         }
-        if (wolves >= good) {
+
+        long aliveVillagers = state.alivePlayers().stream()
+                .filter(p -> p.getRole() == Role.VILLAGER)
+                .count();
+        // 神职 = 好人阵营里不是平民的那些（预言家 / 女巫 / 猎人…）
+        long aliveGods = state.alivePlayers().stream()
+                .filter(p -> p.getRole() != null
+                        && p.getRole().getCamp() == Camp.GOOD
+                        && p.getRole() != Role.VILLAGER)
+                .count();
+
+        if (aliveVillagers == 0 || aliveGods == 0) {
             state.setWinnerCamp(Camp.WOLF.name());
             return true;
         }
@@ -1060,6 +1344,18 @@ public class WerewolfEngine implements GameEngine {
             }
         }
 
+        // 人设：大模型靠它写出各自的语气，规则 AI 也能用它调整行为倾向
+        if (me.getPersona() != null) {
+            view.putInfo("personaTag", me.getPersona().getTag());
+            view.putInfo("personaStyle", me.getPersona().describe());
+            view.putInfo("aggression", me.getPersona().getAggression());
+        }
+
+        // 跨局记忆：只给 AI —— 让它记得"上一局 3 号是狼，把我骗了"
+        if (me.isAi() && !state.getRoomHistory().isEmpty()) {
+            view.putInfo("roomHistory", new ArrayList<>(state.getRoomHistory()));
+        }
+
         view.setAvailableActions(optionsFor(seatNo));
         view.setHint(hintFor(me));
         return view;
@@ -1078,6 +1374,14 @@ public class WerewolfEngine implements GameEngine {
             return options;
         }
         if (!me.isAlive()) {
+            // 猎人等着开枪 —— 他虽然是"出局的人"，但这一步恰恰该他动。
+            // 这里必须在"遗言"判断之前：不然他的开枪按钮永远不会出现。
+            if (state.getPhase() == GamePhase.HUNTER_SHOOT
+                    && pendingHunterSeat != null && seatNo == pendingHunterSeat) {
+                options.add(ActionType.HUNTER_SHOOT.name());
+                options.add(ActionType.PASS.name());
+                return options;
+            }
             // 出局的人只有在"说遗言"时才有操作
             if (state.getPhase() == GamePhase.DAY_DISCUSSION
                     && WerewolfViews.currentSpeakerSeat(state) == seatNo) {
@@ -1095,8 +1399,8 @@ public class WerewolfEngine implements GameEngine {
                     options.add(ActionType.WEREWOLF_KILL.name());
                 }
                 if (step == NightStep.WITCH && me.getRole() == Role.WITCH && !state.isWitchActed()) {
-                    if (!state.isWitchSaveUsed() && state.getWolfTarget() != null
-                            && !state.getWolfTarget().equals(seatNo)) {
+                    // 女巫可以自救，所以这里不排除"被刀的是她自己"的情况
+                    if (!state.isWitchSaveUsed() && state.getWolfTarget() != null) {
                         options.add(ActionType.WITCH_SAVE.name());
                     }
                     if (!state.isWitchPoisonUsed()) {

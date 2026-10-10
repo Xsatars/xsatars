@@ -27,6 +27,18 @@ public class PlayerVO {
     /** 是否在线（掉线后房间里会显示"离线"） */
     private boolean online = true;
 
+    /** 是不是 AI 玩家 */
+    private boolean ai;
+
+    /** AI 的名字（只有 AI 有；真人的名字在 nickname 里，两者前端都读 nickname） */
+    private String aiName;
+
+    /** AI 的性格标签，比如"急脾气""阴阳怪气"（只有 AI 有，前端显示在名字旁边） */
+    private String aiPersonaTag;
+
+    /** AI 的性格标识（如 HOTHEAD）；前端用它来禁用"已经被占用的性格" */
+    private String aiPersonaKey;
+
     public Long getPlayerId() {
         return playerId;
     }
@@ -89,5 +101,37 @@ public class PlayerVO {
 
     public void setOnline(boolean online) {
         this.online = online;
+    }
+
+    public boolean isAi() {
+        return ai;
+    }
+
+    public void setAi(boolean ai) {
+        this.ai = ai;
+    }
+
+    public String getAiName() {
+        return aiName;
+    }
+
+    public void setAiName(String aiName) {
+        this.aiName = aiName;
+    }
+
+    public String getAiPersonaTag() {
+        return aiPersonaTag;
+    }
+
+    public void setAiPersonaTag(String aiPersonaTag) {
+        this.aiPersonaTag = aiPersonaTag;
+    }
+
+    public String getAiPersonaKey() {
+        return aiPersonaKey;
+    }
+
+    public void setAiPersonaKey(String aiPersonaKey) {
+        this.aiPersonaKey = aiPersonaKey;
     }
 }

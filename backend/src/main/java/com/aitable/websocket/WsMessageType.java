@@ -75,6 +75,22 @@ public enum WsMessageType {
     /** 游戏结束（Step 5-6） */
     GAME_END,
 
+    /**
+     * 主持人的解说（天亮 / 放逐 / 游戏结束）。
+     *
+     * <p>内容是自然语言，全场都能听到。payload 里带 {text, moment}，
+     * moment 取值 DAWN / VOTE / GAME_END，前端可以据此配不同样式。</p>
+     */
+    HOST_SAY,
+
+    /**
+     * AI 的局后复盘（一局打完每个 AI 反省一句）。
+     *
+     * <p>payload 里是 {reflections: {座位号: "复盘内容"}}。
+     * 单独发一条是因为复盘要调大模型，生成得比 GAME_END 晚一点。</p>
+     */
+    AI_REFLECTION,
+
     /** 错误提示，只发给触发者 */
     ERROR,
 

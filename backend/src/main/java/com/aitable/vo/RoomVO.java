@@ -34,6 +34,12 @@ public class RoomVO {
     /** 当前进行中的对局ID，没有就是 null */
     private Long currentGameId;
 
+    /** AI 用哪个脑子：rule（规则）/ llm（大模型）。房主可切换，下一局生效 */
+    private String aiBrain;
+
+    /** 服务端现在到底能不能用大模型（没配 API Key 就是 false，前端据此禁用那个选项） */
+    private boolean llmAvailable;
+
     /** 玩家列表，按座位号排序 */
     private List<PlayerVO> players = new ArrayList<>();
 
@@ -118,6 +124,22 @@ public class RoomVO {
 
     public void setCurrentGameId(Long currentGameId) {
         this.currentGameId = currentGameId;
+    }
+
+    public String getAiBrain() {
+        return aiBrain;
+    }
+
+    public void setAiBrain(String aiBrain) {
+        this.aiBrain = aiBrain;
+    }
+
+    public boolean isLlmAvailable() {
+        return llmAvailable;
+    }
+
+    public void setLlmAvailable(boolean llmAvailable) {
+        this.llmAvailable = llmAvailable;
     }
 
     public List<PlayerVO> getPlayers() {

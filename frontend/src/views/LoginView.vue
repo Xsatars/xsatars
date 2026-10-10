@@ -35,8 +35,12 @@ function goRegister() {
 <template>
   <div class="auth-page">
     <el-card class="panel">
-      <h1 class="title">AI Table</h1>
-      <p class="subtitle">登录</p>
+      <!-- 品牌区：给登录页一点"这是个产品"的感觉，而不是一个光秃秃的表单 -->
+      <div class="brand">
+        <div class="brand-mark">🎭</div>
+        <h1 class="brand-name">AI Table</h1>
+        <p class="brand-tagline">和 AI 一起，开一局狼人杀</p>
+      </div>
 
       <el-form class="form" label-width="70px" @submit.prevent>
         <el-form-item label="用户名">
@@ -72,7 +76,9 @@ function goRegister() {
 .auth-page {
   display: flex;
   justify-content: center;
-  padding: 70px 16px;
+  align-items: flex-start;
+  min-height: 100%;
+  padding: 8vh 16px 60px;
 }
 
 .panel {
@@ -87,7 +93,39 @@ function goRegister() {
 
 .subtitle {
   margin: 0 0 20px;
-  color: #909399;
+  color: var(--at-text-secondary);
+}
+
+/* 品牌区：渐变大标题 + 带光晕的 emoji */
+.brand {
+  text-align: center;
+  margin-bottom: 26px;
+}
+
+.brand-mark {
+  font-size: 46px;
+  line-height: 1;
+  margin-bottom: 12px;
+  /* 给 emoji 一点"舞台光" */
+  filter: drop-shadow(0 0 22px rgba(129, 140, 248, 0.55));
+}
+
+.brand-name {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  /* 渐变文字：靠 background-clip 把渐变裁进字形里 */
+  background: linear-gradient(135deg, #a5b4fc 0%, #c4b5fd 55%, #7dd3fc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.brand-tagline {
+  margin: 8px 0 0;
+  color: var(--at-text-secondary);
+  font-size: 14px;
 }
 
 .form {
@@ -99,7 +137,7 @@ function goRegister() {
 }
 
 .switch {
-  color: #606266;
+  color: var(--at-text-regular);
   font-size: 14px;
 }
 </style>

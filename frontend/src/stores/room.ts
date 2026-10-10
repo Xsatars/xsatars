@@ -2,11 +2,13 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 import {
+  addAiPlayer as addAiApi,
   createRoom as createRoomApi,
   getRoom as getRoomApi,
   joinRoom as joinRoomApi,
   kickPlayer as kickPlayerApi,
   leaveRoom as leaveRoomApi,
+  removeAiPlayer as removeAiApi,
   setReady as setReadyApi,
   startGame as startGameApi
 } from '@/api/room'
@@ -69,8 +71,8 @@ export const useRoomStore = defineStore('room', () => {
     wsConnected.value = false
   }
 
-  async function createRoom(name?: string) {
-    const res = await createRoomApi(name)
+  async function createRoom(name?: string, boardCode?: string) {
+    const res = await createRoomApi(name, boardCode)
     room.value = res.data
     return res.data
   }
@@ -128,6 +130,26 @@ export const useRoomStore = defineStore('room', () => {
     room.value = res.data
   }
 
+  /** 房主加一个 AI 玩家补位（一个人也能开局）；persona 用来指定性格 */
+  async function addAiPlayer(persona?: string) {
+    const current = room.value
+    if (!current) {
+      return
+    }
+    const res = await addAiApi(current.id, persona)
+    room.value = res.data
+  }
+
+  /** 房主移除一个 AI 玩家 */
+  async function removeAiPlayer(playerId: number) {
+    const current = room.value
+    if (!current) {
+      return
+    }
+    const res = await removeAiApi(current.id, playerId)
+    room.value = res.data
+  }
+
   /** 我在当前房间里的席位（不在房间里返回 null） */
   function myPlayer(): PlayerVO | null {    const auth = useAuthStore()
     return room.value?.players.find((p) => p.userId === auth.user?.id) ?? null
@@ -151,6 +173,8 @@ export const useRoomStore = defineStore('room', () => {
     startGame,
     setReady,
     kickPlayer,
+    addAiPlayer,
+    removeAiPlayer,
     myPlayer,
     isOwner
   }

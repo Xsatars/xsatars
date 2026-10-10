@@ -32,8 +32,16 @@ public class Room {
     /** 游戏类型，V0.1 固定 WEREWOLF */
     private String gameType;
 
-    /** 板子，V0.1 固定 WEREWOLF_6（6 人局） */
+    /** 板子：WEREWOLF_6（6 人局）/ WEREWOLF_8（8 人局） */
     private String boardCode;
+
+    /**
+     * 这局的 AI 用哪个"脑子"：{@code rule}（规则）或 {@code llm}（大模型）。
+     *
+     * <p>房主可以在房间里随时切换，<b>下一局生效</b> —— 不让它在对局中途换脑子，
+     * 否则同一个 AI 前后半局行为不一致，玩家会觉得精神分裂。</p>
+     */
+    private String aiBrain;
 
     /** 最大玩家数，V0.1 固定 6 */
     private Integer maxPlayers;
@@ -96,6 +104,14 @@ public class Room {
 
     public void setBoardCode(String boardCode) {
         this.boardCode = boardCode;
+    }
+
+    public String getAiBrain() {
+        return aiBrain;
+    }
+
+    public void setAiBrain(String aiBrain) {
+        this.aiBrain = aiBrain;
     }
 
     public Integer getMaxPlayers() {

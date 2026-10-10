@@ -16,8 +16,18 @@ public enum Role {
     /** 女巫（1 个）：一瓶解药、一瓶毒药 */
     WITCH("女巫", Camp.GOOD),
 
-    /** 平民（2 个）：夜晚无行动 */
-    VILLAGER("平民", Camp.GOOD);
+    /** 平民（6 人局 2 个 / 8 人局 3 个）：夜晚无行动 */
+    VILLAGER("平民", Camp.GOOD),
+
+    /**
+     * 猎人（8 人局，1 个）。
+     *
+     * <p>被狼刀死、或被投票放逐时，可以<b>开枪带走一个人</b>。</p>
+     *
+     * <p>但<b>被女巫毒死不能开枪</b> —— 这是标准规则，也是这个角色的平衡点：
+     * 狼队可以用毒药"废掉"猎人的枪（前提是他们猜得到谁是猎人）。</p>
+     */
+    HUNTER("猎人", Camp.GOOD);
 
     private final String label;
     private final Camp camp;

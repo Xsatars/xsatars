@@ -5,7 +5,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
 import UserAvatar from '@/components/UserAvatar.vue'
-import type { PlayerVO } from '@/types'
+import { getAiPersonas, updateAiBrain } from '@/api/room'
+import type { AiPersonaVO, PlayerVO } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,6 +15,11 @@ const roomStore = useRoomStore()
 
 const loading = ref(true)
 const starting = ref(false)
+const addingAi = ref(false)
+/** 可选的 AI 性格（从后端拉，前端不硬编码这份列表） */
+const aiPersonas = ref<AiPersonaVO[]>([])
+/** 这次要加的性格；留空就自动挑一个这桌没用过的 */
+const newAiPersona = ref<string | undefined>(undefined)
 const readying = ref(false)
 const errorMessage = ref('')
 
@@ -78,9 +84,26 @@ onMounted(async () => {
   try {
     await roomStore.enterRoom(roomIdOrNo.value)
   } catch (e) {
-    errorMessage.value = e instanceof Error && e.message === '未登录' ? '请先登录' : '房间不存在或已结束'
+    // 区分失败原因。
+    // 以前不管什么错一律显示"房间不存在或已结束"，于是"WebSocket 没连上"、
+    // "网络抖了一下"都会被告知"房间失效"，非常误导人（有个真实的 bug 就是这么来的）。
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === '未登录') {
+      errorMessage.value = '请先登录'
+    } else if (msg.includes('房间不存在')) {
+      errorMessage.value = '房间不存在或已结束'
+    } else {
+      errorMessage.value = '房间加载失败，请刷新页面重试'
+    }
   } finally {
     loading.value = false
+  }
+
+  // 拉一次可选性格列表（房主要用；失败也不影响房间本身的使用）
+  try {
+    aiPersonas.value = (await getAiPersonas()).data
+  } catch (e) {
+    // 拿不到就让下拉是空的，房主不选也能加 AI（后端会自动挑）
   }
 })
 
@@ -124,6 +147,78 @@ async function handleToggleReady() {  readying.value = true
     // 错误提示由 axios 拦截器统一处理
   } finally {
     readying.value = false
+  }
+}
+
+/** 这一桌已经被占用的性格 key —— 下拉里要禁用它们，免得重复选 */
+const usedPersonaKeys = computed(() =>
+  (room.value?.players ?? [])
+    .map((p) => p.aiPersonaKey)
+    .filter((key): key is string => !!key)
+)
+
+/** AI 用哪个脑子（跟着房间走；改了立刻提交，下一局生效） */
+const aiBrain = ref('rule')
+
+// 房间数据回来时同步一下（刷新页面后也要准）
+watch(
+  () => room.value?.aiBrain,
+  (v) => {
+    if (v) {
+      aiBrain.value = v
+    }
+  },
+  { immediate: true }
+)
+
+/** 切换 AI 模式：立刻提交给后端，下一局生效 */
+async function handleChangeBrain(value: string) {
+  if (!room.value) {
+    return
+  }
+  try {
+    // 注意：这里的接口返回的是 Result<RoomVO>（跟其它 room 接口一致），
+    // 真正要的 RoomVO 在 .data 里面
+    const res = await updateAiBrain(room.value.id, value)
+    if (res.data) {
+      roomStore.room = res.data
+    }
+    ElMessage.success('AI 模式已切换，下一局生效')
+  } catch (e) {
+    // 失败就退回原值，别让界面显示一个其实没生效的状态（错误提示由拦截器统一弹）
+    aiBrain.value = room.value?.aiBrain ?? 'rule'
+  }
+}
+
+/** 房主添加 AI 补位 */async function handleAddAi() {
+  addingAi.value = true
+  try {
+    await roomStore.addAiPlayer(newAiPersona.value)
+    // 加完清空选择，方便接着挑下一个性格
+    newAiPersona.value = undefined
+  } catch (e) {
+    // 错误提示由 axios 拦截器统一处理
+  } finally {
+    addingAi.value = false
+  }
+}
+
+/** 房主移除一个 AI */
+async function handleRemoveAi(player: PlayerVO) {
+  try {
+    await ElMessageBox.confirm(`确定移除 AI「${player.nickname}」吗？`, '移除 AI', {
+      confirmButtonText: '移除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  try {
+    await roomStore.removeAiPlayer(player.playerId)
+    ElMessage.success(`已移除「${player.nickname}」`)
+  } catch (e) {
+    // 拦截器已提示
   }
 }
 
@@ -202,8 +297,8 @@ async function handleStartGame() {
           ? `等待玩家加入（${room.playerCount}/${room.maxPlayers}）`
           : '人齐了，等待所有人准备'"
         :description="room.playerCount < room.maxPlayers
-          ? '把房间号发给朋友，他们用同一个网址登录后输入房间号即可加入。'
-          : `${startHint}。除房主外每个人都要点「准备」，房主才能开局。`"
+          ? '把房间号发给朋友，或者房主直接点下面的「添加 AI」把空位补齐——一个人也能开局。'
+          : `${startHint}。除房主外每个人都要点「准备」（AI 加进来就是已就绪），房主才能开局。`"
       />
 
       <div class="seats">
@@ -225,7 +320,17 @@ async function handleStartGame() {
             </div>
             <div class="seat-tags">
               <el-tag v-if="item.player.owner" size="small" type="warning">房主</el-tag>
-              <el-tag v-if="item.player.userId === auth.user?.id" size="small">我</el-tag>
+              <el-tag v-if="item.player.ai" size="small" type="success">🤖 AI</el-tag>
+              <!-- AI 的脾气：开局前就能看到"这桌都是些什么人" -->
+              <el-tag v-if="item.player.aiPersonaTag" size="small" effect="plain">
+                {{ item.player.aiPersonaTag }}
+              </el-tag>
+              <el-tag
+                v-if="item.player.userId != null && item.player.userId === auth.user?.id"
+                size="small"
+              >
+                我
+              </el-tag>
               <el-tag v-if="!item.player.online" size="small" type="info">离线</el-tag>
               <el-tag
                 v-if="!item.player.owner"
@@ -235,9 +340,18 @@ async function handleStartGame() {
               >
                 {{ item.player.ready ? '已准备' : '未准备' }}
               </el-tag>
-              <!-- 房主可以把别人请出房间 -->
+              <!-- 房主可以把别人请出房间：AI 用「移除」，真人用「踢出」 -->
               <el-button
-                v-if="isOwner && item.player.userId !== auth.user?.id"
+                v-if="isOwner && item.player.ai"
+                link
+                type="danger"
+                size="small"
+                @click="handleRemoveAi(item.player)"
+              >
+                移除
+              </el-button>
+              <el-button
+                v-else-if="isOwner && item.player.userId !== auth.user?.id"
                 link
                 type="danger"
                 size="small"
@@ -253,6 +367,47 @@ async function handleStartGame() {
 
       <div class="footer">
         <template v-if="isOwner">
+          <!-- 一个人也能开局：选好性格，一键把 AI 补进来 -->
+          <template v-if="room.playerCount < room.maxPlayers">
+            <el-select
+              v-model="newAiPersona"
+              placeholder="AI 性格（不选则自动）"
+              size="large"
+              clearable
+              style="width: 200px"
+            >
+              <el-option
+                v-for="p in aiPersonas"
+                :key="p.key"
+                :label="`${p.name} · ${p.tag}`"
+                :value="p.key"
+                :disabled="usedPersonaKeys.includes(p.key)"
+              >
+                <span>{{ p.name }} · {{ p.tag }}</span>
+                <span class="persona-hint">
+                  {{ usedPersonaKeys.includes(p.key) ? '已被占用' : p.style }}
+                </span>
+              </el-option>
+            </el-select>
+            <el-button size="large" :loading="addingAi" @click="handleAddAi">
+              🤖 添加 AI（还差 {{ room.maxPlayers - room.playerCount }} 个）
+            </el-button>
+          </template>
+
+          <!-- AI 的脑子：规则 AI（快、免费、不用网）还是大模型（说话有人味） -->
+          <el-select
+            v-model="aiBrain"
+            size="large"
+            style="width: 170px"
+            @change="handleChangeBrain"
+          >
+            <el-option label="⚡ 规则 AI" value="rule" />
+            <el-option
+              label="🧠 大模型 AI"
+              value="llm"
+              :disabled="!room.llmAvailable"
+            />
+          </el-select>
           <el-button
             type="primary"
             size="large"
@@ -315,19 +470,19 @@ async function handleStartGame() {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #606266;
+  color: var(--at-text-regular);
 }
 
 .label {
   font-size: 13px;
-  color: #909399;
+  color: var(--at-text-secondary);
 }
 
 .room-no {
   font-size: 20px;
   font-weight: bold;
   letter-spacing: 2px;
-  color: #409eff;
+  color: #818cf8;
 }
 
 .hint-bar {
@@ -342,34 +497,34 @@ async function handleStartGame() {
 }
 
 .seat {
-  border: 1px solid #e4e7ed;
+  border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 8px;
   padding: 14px;
   min-height: 96px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .seat.me {
-  border-color: #409eff;
-  background: #ecf5ff;
+  border-color: #818cf8;
+  background: rgba(129, 140, 248, 0.18);
 }
 
 .seat.owner {
-  border-color: #e6a23c;
+  border-color: #fbbf24;
 }
 
 .seat.empty {
   border-style: dashed;
-  color: #c0c4cc;
-  background: #fafafa;
+  color: var(--at-text-faint);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .seat-no {
   font-size: 12px;
-  color: #909399;
+  color: var(--at-text-secondary);
 }
 
 .seat-main {
@@ -392,7 +547,15 @@ async function handleStartGame() {
 
 .seat-empty {
   font-size: 14px;
-  color: #c0c4cc;
+  color: var(--at-text-faint);
+}
+
+/* 性格下拉里那行小字说明 */
+.persona-hint {
+  float: right;
+  margin-left: 16px;
+  font-size: 12px;
+  color: var(--at-text-secondary);
 }
 
 .footer {
@@ -403,15 +566,15 @@ async function handleStartGame() {
 }
 
 .hint {
-  color: #909399;
+  color: var(--at-text-secondary);
   font-size: 13px;
 }
 
 .me-info {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #ebeef5;
-  color: #606266;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--at-text-regular);
   font-size: 13px;
 }
 

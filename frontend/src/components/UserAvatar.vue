@@ -44,8 +44,8 @@ const style = computed(() => ({
 <style scoped>
 .user-avatar {
   border-radius: 50%;
-  background: #e4e7ed;
-  color: #909399;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--at-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -53,7 +53,7 @@ const style = computed(() => ({
   flex-shrink: 0;
   font-weight: bold;
   user-select: none;
-  border: 1px solid #dcdfe6;
+  border: 1px solid rgba(255, 255, 255, 0.13);
 }
 
 .user-avatar img {

@@ -28,6 +28,8 @@ public final class WerewolfViews {
         view.setRoomId(state.getRoomId());
         view.setPhase(state.getPhase().name());
         view.setPhaseLabel(state.getPhase().getLabel());
+        // 状态版本号：前端靠它丢掉"迟到"的旧快照（跨频道消息不保证顺序）
+        view.setStateSeq(state.getStateSeq());
         view.setRound(state.getRound());
         view.setAliveCount(state.alivePlayers().size());
         view.setWinnerCamp(state.getWinnerCamp());
@@ -53,8 +55,20 @@ public final class WerewolfViews {
                     || state.getAbstainedSeats().contains(player.getSeatNo())));
             seat.setOnline(player.isOnline());
             seat.setAvatar(player.getAvatar());
+            seat.setAi(player.isAi());
+            if (player.getPersona() != null) {
+                seat.setAiPersonaTag(player.getPersona().getTag());
+            }
             seats.add(seat);
             // ★ 注意：这里不设置任何角色相关字段 —— 公共状态里没有身份
+        }
+        // 记忆：发言和投票历史是公开信息，前端能拿来做对局回顾，AI 靠它"记得住"
+        view.setSpeechHistory(state.speechHistoryText(40));
+        view.setVoteHistory(state.voteHistoryText(10));
+        // 夜晚：告诉大家"现在轮到哪个角色"（跟主持人喊"狼人请睁眼"一个道理，
+        // 不涉及任何目标；图标和配色交给前端）
+        if (state.getPhase() == GamePhase.NIGHT && state.getNightStep() != null) {
+            view.setNightActor(state.getNightStep().name());
         }
         view.setSeats(seats);
         return view;

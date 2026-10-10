@@ -1,4 +1,41 @@
-/* 全局基础样式 */
+/* ============================================================
+   全局样式与设计变量（深色玻璃风）
+   ------------------------------------------------------------
+   三层设计：
+     ① 底色    —— 深夜蓝紫 + 三处彩色柔光晕，页面有纵深
+     ② 玻璃    —— 卡片/弹窗是半透明 + 强模糊，光会透上来
+     ③ 微高光  —— 悬停时边框泛品牌色、按钮发彩色光，觉得"活的"
+
+   Element Plus 官方的深色变量（main.ts 里引入的那个 css-vars）已经
+   处理好了输入框/下拉/表格这些组件的基础配色，所以这里只做"加料"，
+   不去一个个覆盖 —— 跟着官方走才不会在下个版本崩掉。
+   ============================================================ */
+
+:root {
+  /* 品牌色（深色底上要更亮一点才醒目） */
+  --at-brand: #818cf8;
+  --at-brand-2: #a78bfa;
+  --at-brand-3: #38bdf8;
+  --at-brand-glow: rgba(129, 140, 248, 0.45);
+
+  /* 文字层级（深色底上的浅色） */
+  --at-text: #e8ecf5;
+  --at-text-regular: #b6c0d4;
+  --at-text-secondary: #8792a8;
+  --at-text-faint: #5d6880;
+
+  /* 玻璃表面 */
+  --at-glass: rgba(255, 255, 255, 0.055);
+  --at-glass-strong: rgba(255, 255, 255, 0.09);
+  --at-glass-border: rgba(255, 255, 255, 0.11);
+  --at-glass-border-hover: rgba(129, 140, 248, 0.34);
+
+  /* 圆角与阴影 */
+  --at-radius: 16px;
+  --at-radius-sm: 10px;
+  --at-shadow: 0 8px 32px -10px rgba(0, 0, 0, 0.55);
+  --at-shadow-hover: 0 16px 44px -12px rgba(0, 0, 0, 0.7);
+}
 
 * {
   box-sizing: border-box;
@@ -13,7 +50,211 @@ body,
 }
 
 body {
-  font-family: 'Microsoft YaHei', 'PingFang SC', Helvetica, Arial, sans-serif;
-  background-color: #f5f7fa;
-  color: #303133;
+  font-family: 'Microsoft YaHei', 'PingFang SC', -apple-system, Helvetica, Arial, sans-serif;
+  color: var(--at-text);
+  -webkit-font-smoothing: antialiased;
+  /* ★ 底色：深夜蓝紫 + 三处柔光晕，fixed 让它像一块固定幕布 */
+  background:
+    radial-gradient(1200px 700px at 12% -10%, rgba(99, 102, 241, 0.3), transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, rgba(168, 85, 247, 0.24), transparent 58%),
+    radial-gradient(1000px 700px at 50% 115%, rgba(14, 165, 233, 0.2), transparent 62%),
+    linear-gradient(160deg, #0b1020 0%, #111731 45%, #0a0f1e 100%);
+  background-attachment: fixed;
+}
+
+/* ---------------- 卡片：玻璃 + 悬停泛光 ---------------- */
+
+.el-card {
+  position: relative;
+  background: var(--at-glass) !important;
+  border: 1px solid var(--at-glass-border) !important;
+  border-radius: var(--at-radius) !important;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--at-shadow) !important;
+  overflow: hidden;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease,
+    transform 0.3s ease;
+}
+
+/* 玻璃的"顶部反光"：一条从中间往两边淡出的高光。
+   这是让平面色块看起来像一块玻璃（而不是一块色块）的关键一笔。 */
+.el-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  pointer-events: none;
+}
+
+.el-card:hover {
+  background: var(--at-glass-strong) !important;
+  border-color: var(--at-glass-border-hover) !important;
+  box-shadow: var(--at-shadow-hover), 0 0 0 1px rgba(129, 140, 248, 0.12) !important;
+  transform: translateY(-2px);
+}
+
+.el-card__header {
+  border-bottom: 1px solid var(--at-glass-border) !important;
+  font-weight: 600;
+  color: var(--at-text);
+  background: transparent !important;
+}
+
+/* ---------------- 按钮：主按钮渐变 + 彩色发光 ---------------- */
+
+.el-button {
+  border-radius: var(--at-radius-sm);
+  transition: all 0.22s ease;
+}
+
+.el-button--large {
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border: none;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+}
+
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover {
+  background: linear-gradient(135deg, #7478f5 0%, #9d75f8 100%);
+  box-shadow: 0 8px 26px rgba(99, 102, 241, 0.6);
+  transform: translateY(-1px);
+}
+
+.el-button--success:not(.is-plain):not(.is-link):not(.is-text) {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.38);
+}
+
+.el-button--success:hover {
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.58);
+  transform: translateY(-1px);
+}
+
+.el-button--danger:not(.is-plain):not(.is-link):not(.is-text) {
+  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  border: none;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.38);
+}
+
+.el-button--danger:hover {
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.58);
+  transform: translateY(-1px);
+}
+
+/* ---------------- 输入框：聚焦时品牌色描边 + 微光 ---------------- */
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--at-radius-sm) !important;
+  transition: box-shadow 0.22s ease, background 0.22s ease;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.22), 0 0 18px rgba(129, 140, 248, 0.18) !important;
+}
+
+/* ---------------- 弹窗：玻璃 + 大投影 ---------------- */
+
+.el-dialog {
+  border-radius: var(--at-radius) !important;
+  background: rgba(20, 26, 46, 0.86) !important;
+  border: 1px solid var(--at-glass-border);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow: 0 32px 80px -16px rgba(0, 0, 0, 0.75) !important;
+}
+
+.el-dialog__header {
+  font-weight: 600;
+  color: var(--at-text);
+}
+
+.el-overlay {
+  background-color: rgba(6, 10, 20, 0.62) !important;
+  backdrop-filter: blur(3px);
+}
+
+/* ---------------- 标签 / 表格 ---------------- */
+
+.el-tag {
+  border-radius: 7px;
+  font-weight: 500;
+}
+
+.el-table {
+  border-radius: var(--at-radius-sm);
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  background: rgba(255, 255, 255, 0.045) !important;
+  color: var(--at-text-regular) !important;
+  font-weight: 600;
+}
+
+/* ---------------- 分隔线 / 折叠面板等 ---------------- */
+
+.el-divider {
+  border-color: var(--at-glass-border) !important;
+}
+
+.el-divider__text {
+  background: transparent !important;
+  color: var(--at-text-secondary);
+}
+
+/* ---------------- 滚动条：细、淡、悬停变亮 ---------------- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(129, 140, 248, 0.55);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------------- 页面切换：淡入 + 上浮 ---------------- */
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* ---------------- 选中文字的颜色 ---------------- */
+
+::selection {
+  background: rgba(129, 140, 248, 0.35);
+  color: #ffffff;
 }

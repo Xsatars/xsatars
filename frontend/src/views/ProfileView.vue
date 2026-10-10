@@ -239,7 +239,7 @@ function goHome() {
 }
 
 .avatar-actions .account {
-  color: #909399;
+  color: var(--at-text-secondary);
   font-size: 13px;
   margin: 4px 0 10px;
 }
@@ -266,7 +266,7 @@ function goHome() {
 }
 
 .tip {
-  color: #909399;
+  color: var(--at-text-secondary);
   font-size: 12px;
   margin-top: 8px;
   line-height: 1.6;

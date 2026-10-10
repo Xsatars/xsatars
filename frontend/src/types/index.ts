@@ -46,20 +46,40 @@ export interface LoginVO {
 }
 
 /** 房间里的玩家，对应 PlayerVO */
+/** 一个可选的 AI 性格（后端下发，供下拉框使用） */
+export interface AiPersonaVO {
+  /** 提交时回传的标识，如 HOTHEAD */
+  key: string
+  /** 名字，如"阿豆" */
+  name: string
+  /** 性格标签，如"急脾气" */
+  tag: string
+  /** 口吻描述，可以当提示文字 */
+  style: string
+}
+
 export interface PlayerVO {
   playerId: number
-  userId: number
+  /** AI 玩家没有真实账号，这里是 null */
+  userId: number | null
   nickname: string
   avatar?: string
   seatNo: number
   ready: boolean
   owner: boolean
-  /** 是否在线（掉线会显示"离线"） */
+  /** 是否在线（掉线会显示"离线"；AI 永远在线） */
   online: boolean
+  /** 是不是 AI 玩家 */
+  ai: boolean
+  /** AI 的名字（只有 AI 有） */
+  aiName?: string
+  /** AI 的性格标签（如"急脾气"） */
+  aiPersonaTag?: string
+  /** AI 的性格标识（如 HOTHEAD）；前端用它禁用"已被占用的性格" */
+  aiPersonaKey?: string
 }
 
-/** 房间详情，对应 RoomVO */
-export interface RoomVO {
+/** 房间详情，对应 RoomVO */export interface RoomVO {
   id: number
   roomNo: string
   name: string
@@ -70,6 +90,10 @@ export interface RoomVO {
   playerCount: number
   status: 'WAITING' | 'PLAYING' | 'FINISHED'
   currentGameId?: number
+  /** AI 用哪个脑子：rule（规则）/ llm（大模型）。房主可切换，下一局生效 */
+  aiBrain?: string
+  /** 服务端到底能不能用大模型（没配 API Key 就是 false） */
+  llmAvailable?: boolean
   players: PlayerVO[]
   /** 是否满足开局条件（满员且未开始） */
   canStart: boolean
@@ -97,6 +121,10 @@ export type WsMessageType =
   | 'VOTE_RESULT'
   | 'GAME_STATE_UPDATE'
   | 'GAME_END'
+  /** 主持人的解说（天亮 / 放逐 / 游戏结束） */
+  | 'HOST_SAY'
+  /** AI 的局后复盘 */
+  | 'AI_REFLECTION'
   | 'ERROR'
   /** 你的账号在另一个页面登录了，当前页面作废 */
   | 'SESSION_REPLACED'
@@ -129,6 +157,10 @@ export interface SeatView {
   online: boolean
   /** 头像地址；为空表示还没设置头像（界面上显示默认空白头像） */
   avatar?: string | null
+  /** 是不是 AI 玩家 */
+  ai?: boolean
+  /** AI 的性格标签（如"急脾气"），显示在名字旁边 */
+  aiPersonaTag?: string
 }
 
 /** 公共状态：房间里所有人都一样的那部分 */
@@ -137,11 +169,29 @@ export interface PublicGameState {
   roomId: number
   phase: string
   phaseLabel: string
+  /**
+   * 状态版本号（单调递增）。
+   *
+   * 前端同时从两个 STOMP 频道收状态（房间频道的事件 + 用户频道的全量状态），
+   * 而 STOMP **不保证跨频道的到达顺序**。收到快照时要比较这个号，
+   * 只接受"不比当前更旧"的，否则旧快照会覆盖新状态 ——
+   * 表现就是"明明是白天，闪一下狼人正在刀人"。
+   */
+  stateSeq?: number
   round: number
   aliveCount: number
   seats: SeatView[]
   winnerCamp?: string
   recentMessages: string[]
+  /** 发言历史（跨轮保留，整局都留着；前端拿来做对局回顾） */
+  speechHistory?: string[]
+  /** 投票历史（跨轮保留） */
+  voteHistory?: string[]
+  /**
+   * 夜晚现在轮到哪个角色行动：WOLF / WITCH / SEER；不在夜晚时为 null。
+   * 这是公开信息（跟主持人喊"狼人请睁眼"一样），不包含任何目标。
+   */
+  nightActor?: string | null
   /** 当前这一步的截止时间（毫秒时间戳），0 表示不计时；前端用它显示倒计时 */
   deadline: number
 }
@@ -167,6 +217,16 @@ export interface GameView {
   privateState: PlayerPrivateState
 }
 
+/** 一个可选的板子（6 人局 / 8 人局） */
+export interface BoardVO {
+  code: string
+  label: string
+  /** 角色构成说明，如"2 狼 · 预言家 · 女巫 · 猎人 · 3 平民" */
+  composition: string
+  playerCount: number
+  wolfCount: number
+}
+
 /** 开局收到的身份牌（私有消息 ROLE_ASSIGN） */
 export interface RoleAssignData {
   seatNo: number
@@ -174,6 +234,19 @@ export interface RoleAssignData {
   roleLabel: string
   camp: string
   teammateSeats?: number[]
+}
+
+/** 投票结果（公开消息 VOTE_RESULT） */
+export interface VoteResultData {
+  /** 各座位得票数 */
+  voteCounts?: Record<string, number>
+  /** 得票最高的人（平票时会有多个） */
+  topSeats?: number[]
+  /** 是否平票 */
+  tie?: boolean
+  /** 被放逐的人；平票或没人投票时为 null */
+  exiledSeat?: number | null
+  exiledNickname?: string
 }
 
 /** 游戏结束（公开消息 GAME_END） */

@@ -32,6 +32,28 @@ public interface RoomService {
     RoomVO kickPlayer(Long roomId, Long playerId);
 
     /**
+     * 房主添加一个 AI 玩家补位。
+     *
+     * <p>AI 没有真实账号（user_id 为空），加进来就是「已就绪」——它不会点准备。
+     * 房间满了或者已经开局就不能再加。</p>
+     *
+     * @param personaKey 指定性格（AiPersona 的枚举名，如 HOTHEAD）；
+     *                   传空或无效值就自动挑一个这桌还没用过的
+     */
+    RoomVO addAiPlayer(Long roomId, String personaKey);
+
+    /** 房主移除一个 AI 玩家（只能移除 AI；真人得用踢人） */
+    RoomVO removeAiPlayer(Long roomId, Long playerId);
+
+    /**
+     * 房主切换 AI 的"脑子"：{@code rule}（规则 AI）或 {@code llm}（大模型 AI）。
+     *
+     * <p>切换<b>下一局生效</b> —— 不让它在对局中途换，否则同一个 AI
+     * 前半局一个样、后半局一个样，玩家会觉得精神分裂。</p>
+     */
+    RoomVO updateAiBrain(Long roomId, String aiBrain);
+
+    /**
      * 准备 / 取消准备。
      *
      * <p>房主不需要准备（他点"开始游戏"就开局），所以房主调这个会被拒绝。

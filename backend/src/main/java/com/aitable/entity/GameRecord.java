@@ -21,6 +21,19 @@ public class GameRecord {
 
     private Long userId;
 
+    /** AI 玩家的名字（真人玩家这里是 null，名字在 users 表里） */
+    private String aiName;
+
+    /** AI 的性格标识（方便以后统计"哪种性格胜率高"） */
+    private String aiPersona;
+
+    /**
+     * AI 对这局的复盘（一句话）。
+     *
+     * <p>下一局会作为跨局记忆喂回给同一个 AI —— 所以它能说出"上一局我不该跟票"。</p>
+     */
+    private String reflection;
+
     private Integer seatNo;
 
     /** 角色：WOLF / SEER / WITCH / VILLAGER */
@@ -59,6 +72,30 @@ public class GameRecord {
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public String getAiName() {
+        return aiName;
+    }
+
+    public void setAiName(String aiName) {
+        this.aiName = aiName;
+    }
+
+    public String getAiPersona() {
+        return aiPersona;
+    }
+
+    public void setAiPersona(String aiPersona) {
+        this.aiPersona = aiPersona;
+    }
+
+    public String getReflection() {
+        return reflection;
+    }
+
+    public void setReflection(String reflection) {
+        this.reflection = reflection;
     }
 
     public Integer getSeatNo() {

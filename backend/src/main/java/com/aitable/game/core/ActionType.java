@@ -23,6 +23,13 @@ public enum ActionType {
     /** 白天投票放逐某人 */
     VOTE,
 
+    /**
+     * 猎人开枪带走一个人（只有猎人、且只在 {@link GamePhase#HUNTER_SHOOT} 阶段可用）。
+     *
+     * <p>不想开枪就交 {@link #PASS}。</p>
+     */
+    HUNTER_SHOOT,
+
     /** 发言 */
     SPEAK,
 

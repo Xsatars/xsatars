@@ -558,7 +558,7 @@ const roleText = (role: string) =>
 
 .subtitle {
   margin: 0;
-  color: #909399;
+  color: var(--at-text-secondary);
   font-size: 13px;
 }
 
@@ -567,32 +567,32 @@ const roleText = (role: string) =>
 }
 
 .stat {
-  border: 1px solid #e4e7ed;
+  border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 8px;
   padding: 16px;
-  background: #fafcff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .stat-label {
-  color: #909399;
+  color: var(--at-text-secondary);
   font-size: 13px;
 }
 
 .stat-value {
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: #818cf8;
   margin: 6px 0;
 }
 
 .stat-sub {
-  color: #909399;
+  color: var(--at-text-secondary);
   font-size: 12px;
 }
 
 .detail {
   margin-left: 8px;
-  color: #606266;
+  color: var(--at-text-regular);
   font-size: 13px;
 }
 

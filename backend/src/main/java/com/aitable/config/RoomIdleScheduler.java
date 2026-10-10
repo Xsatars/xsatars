@@ -16,6 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,8 +39,8 @@ public class RoomIdleScheduler {
     private final PageSessionRegistry pageSessionRegistry;
     private final StringRedisTemplate stringRedisTemplate;
 
-    /** 全员离线多久之后自动清理（秒） */
-    @Value("${ai-table.room.idle-close-seconds:60}")
+    /** 全员离线多久之后自动清理（秒）。默认 10 分钟 —— 太短会让玩家看个复盘回来房间就没了 */
+    @Value("${ai-table.room.idle-close-seconds:600}")
     private long idleCloseSeconds;
 
     public RoomIdleScheduler(RoomMapper roomMapper, PlayerMapper playerMapper,
@@ -72,15 +73,38 @@ public class RoomIdleScheduler {
         List<Player> seats = playerMapper.selectList(
                 new LambdaQueryWrapper<Player>().eq(Player::getRoomId, room.getId()));
 
+        // AI 玩家没有 WebSocket 连接，永远"离线"——它们不算数，只统计真人
+        List<Player> humans = new ArrayList<>();
+        for (Player seat : seats) {
+            if (!seat.isAiPlayer()) {
+                humans.add(seat);
+            }
+        }
+
         // 一个人都没有的房间，直接删掉
         if (seats.isEmpty()) {
             removeRoom(room, "空房间");
             return;
         }
+        // 只剩 AI 的房间：真人已经走光了，没必要留着
+        if (humans.isEmpty()) {
+            removeRoom(room, "只剩 AI 玩家");
+            return;
+        }
 
-        boolean anyoneOnline = seats.stream()
-                .anyMatch(seat -> pageSessionRegistry.hasSession(seat.getUserId()));
         String key = RedisKeys.roomOffline(room.getId());
+
+        // 兜底：这个房间还挂着一个"当前对局"，说明有人正在玩（或刚打完在看结算面板），
+        // 绝不能清理 —— 玩家看个复盘回来发现房间连座位都没了，那体验太糟。
+        // 等对局彻底结束、房间复位之后，下一轮扫描自然会收拾它。
+        if (room.getCurrentGameId() != null) {
+            stringRedisTemplate.delete(key);   // 也顺手把离线计时清掉，重新算
+            return;
+        }
+
+        boolean anyoneOnline = humans.stream()
+                .anyMatch(seat -> seat.getUserId() != null
+                        && pageSessionRegistry.hasSession(seat.getUserId()));
 
         if (anyoneOnline) {
             // 有人回来了，重新计时

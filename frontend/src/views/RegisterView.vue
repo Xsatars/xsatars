@@ -122,7 +122,7 @@ function goLogin() {
 
 .subtitle {
   margin: 0 0 20px;
-  color: #909399;
+  color: var(--at-text-secondary);
 }
 
 .form {
@@ -134,7 +134,7 @@ function goLogin() {
 }
 
 .switch {
-  color: #606266;
+  color: var(--at-text-regular);
   font-size: 14px;
 }
 </style>

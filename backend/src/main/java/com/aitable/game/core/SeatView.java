@@ -33,6 +33,12 @@ public class SeatView {
     /** 头像地址；为空表示还没设置头像（界面上显示默认空白头像） */
     private String avatar;
 
+    /** 是不是 AI 玩家（前端会加个 🤖 标记） */
+    private boolean ai;
+
+    /** AI 的性格标签，比如"急脾气"（真人这里是 null） */
+    private String aiPersonaTag;
+
     public int getSeatNo() {
         return seatNo;
     }
@@ -103,5 +109,21 @@ public class SeatView {
 
     public void setAvatar(String avatar) {
         this.avatar = avatar;
+    }
+
+    public boolean isAi() {
+        return ai;
+    }
+
+    public void setAi(boolean ai) {
+        this.ai = ai;
+    }
+
+    public String getAiPersonaTag() {
+        return aiPersonaTag;
+    }
+
+    public void setAiPersonaTag(String aiPersonaTag) {
+        this.aiPersonaTag = aiPersonaTag;
     }
 }

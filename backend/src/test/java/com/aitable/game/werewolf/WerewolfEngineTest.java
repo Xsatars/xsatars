@@ -171,11 +171,24 @@ class WerewolfEngineTest {
         PublicGameState publicState = engine.publicState();
         String json = mapper.writeValueAsString(publicState);
 
-        assertFalse(json.contains("WOLF"), "公共状态泄露了狼人： " + json);
-        assertFalse(json.contains("SEER"), "公共状态泄露了预言家： " + json);
-        assertFalse(json.contains("WITCH"), "公共状态泄露了女巫： " + json);
-        assertFalse(json.contains("VILLAGER"), "公共状态泄露了平民： " + json);
-        assertFalse(json.contains("role"), "公共状态里不该有角色字段：" + json);
+        // nightActor 是唯一的例外：它说的是"现在轮到哪个角色行动"，
+        // 跟真人玩的时候主持人喊"狼人请睁眼"一样 —— 公开信息，不代表任何人是什么身份。
+        // 把它剔掉之后，公共状态里不该再出现任何身份字样。
+        String withoutNightActor = json.replaceAll("\"nightActor\"\\s*:\\s*\"[^\"]*\"", "");
+
+        assertFalse(withoutNightActor.contains("WOLF"), "公共状态泄露了狼人： " + json);
+        assertFalse(withoutNightActor.contains("SEER"), "公共状态泄露了预言家： " + json);
+        assertFalse(withoutNightActor.contains("WITCH"), "公共状态泄露了女巫： " + json);
+        assertFalse(withoutNightActor.contains("VILLAGER"), "公共状态泄露了平民： " + json);
+        assertFalse(withoutNightActor.contains("role"), "公共状态里不该有角色字段：" + json);
+
+        // nightActor 本身也要守规矩：只能是角色代号，不能夹带座位号
+        String actor = publicState.getNightActor();
+        if (actor != null) {
+            assertTrue(java.util.List.of("WOLF", "WITCH", "SEER").contains(actor),
+                    "nightActor 只能是角色代号，实际：" + actor);
+            assertFalse(actor.matches(".*\\d.*"), "nightActor 不能夹带座位号：" + actor);
+        }
 
         // 公共状态应该只有座位等公开信息
         assertEquals(6, publicState.getSeats().size());
@@ -590,13 +603,19 @@ class WerewolfEngineTest {
             }
         }
 
-        assertTrue(engine.isFinished(), "对局应该已经结束");
-        assertEquals(Camp.GOOD.name(), engine.winnerCamp(), "狼都被投出去了，好人应该赢");
-        assertEquals(GamePhase.FINISHED, engine.phase());
+        // ★ 注意：改成【屠边】规则之后，狼队变得更容易赢 —— 6 人局里只要把 2 个平民
+        //（或者 2 个神职）清干净就赢了，所以"好人一定赢"这个断言不再成立。
+        // 这个测试改成验证真正该保证的事：对局一定会走到结束，而且必有一方获胜。
+        //（"狼全死 → 好人胜"这条规则由 WinConditionTest 专门覆盖。）
+        assertTrue(engine.isFinished(), "对局应该已经结束，不能卡住");
+        assertNotNull(engine.winnerCamp(), "结束时必须有一方获胜");
+        assertTrue(Camp.GOOD.name().equals(engine.winnerCamp())
+                        || Camp.WOLF.name().equals(engine.winnerCamp()),
+                "赢家只能是好人或狼人，实际：" + engine.winnerCamp());
     }
 
     @Test
-    @DisplayName("★ 狼人数量 ≥ 好人数量 → 狼人获胜")
+    @DisplayName("★ 6 人局：两个平民都被清掉 → 狼人获胜（屠民）")
     void wolfWinsAtParity() {
         WerewolfEngine engine = newEngine();
         WerewolfState state = engine.getState();
@@ -607,11 +626,14 @@ class WerewolfEngineTest {
         finishNight(engine, villagers.get(0).getSeatNo());
         assertEquals(GamePhase.DAY_DISCUSSION, engine.phase());
 
-        // 白天把另一个平民投出去：此时剩 2 狼 + 预言家 + 女巫 = 2v2 → 狼胜
+        // 白天把另一个平民也投出去 → 平民全灭 → 屠民，狼胜。
+        //（顺带说明：这时场上还剩 2 狼 + 预言家 + 女巫，按旧的"人数持平"规则
+        // 恰好也是 2v2，两种规则在这里结论一致；真正能看出区别的是 8 人局，
+        // 见 WinConditionTest。）
         finishDiscussion(engine);
         allAliveVote(engine, villagers.get(1).getSeatNo());
 
-        assertTrue(engine.isFinished(), "2 狼 vs 2 好人应该结束");
+        assertTrue(engine.isFinished(), "平民被清光，对局应该结束");
         assertEquals(Camp.WOLF.name(), engine.winnerCamp());
     }
 

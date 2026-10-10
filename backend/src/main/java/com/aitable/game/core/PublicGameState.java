@@ -21,6 +21,19 @@ public class PublicGameState {
     /** 阶段中文名，前端直接显示 */
     private String phaseLabel;
 
+    /**
+     * 状态版本号：每次游戏状态推进就 +1（单调递增，不会回退）。
+     *
+     * <p><b>为什么需要它</b>：前端通过<b>两个独立的 STOMP 频道</b>收状态 ——
+     * 房间频道收公开事件（{@code PHASE_CHANGE}，里面也带一份完整公开状态），
+     * 用户频道收全量状态（{@code GAME_STATE_UPDATE}）。
+     * STOMP <b>不保证跨频道的到达顺序</b>，于是可能出现"新的先到、旧的后到" ——
+     * 旧快照把新状态覆盖掉，玩家看到的就是"明明是白天，却闪一下狼人正在刀人"。</p>
+     *
+     * <p>带上版本号之后，前端只接受<b>不比当前更旧</b>的快照，这个问题从根上没了。</p>
+     */
+    private long stateSeq;
+
     /** 第几轮（一个夜晚+一个白天算一轮） */
     private int round;
 
@@ -37,6 +50,26 @@ public class PublicGameState {
     private List<String> recentMessages = new ArrayList<>();
 
     /**
+     * 发言历史（跨轮保留，给人读的文本）。
+     *
+     * <p>公开信息，前端可以拿来显示对局回顾；AI 也靠它形成"记忆"，
+     * 发言时会引用前面几轮谁说过什么。</p>
+     */
+    private List<String> speechHistory = new ArrayList<>();
+
+    /** 投票历史（跨轮保留，文本形式，例如"第 1 轮投票：3 号→5 号　（5 号被放逐）"） */
+    private List<String> voteHistory = new ArrayList<>();
+
+    /**
+     * 夜晚现在轮到哪个角色行动：{@code WOLF} / {@code WITCH} / {@code SEER}；不在夜晚为 null。
+     *
+     * <p><b>这是公开信息</b> —— 跟真人玩的时候主持人喊"狼人请睁眼"是一个道理，
+     * 大家知道现在轮到谁，但不知道他选了谁。前端拿它显示"狼人正在行动…"这种提示条，
+     * 图标和配色由前端定，后端只说"轮到哪个角色"。</p>
+     */
+    private String nightActor;
+
+    /**
      * 当前这一步的截止时间（毫秒时间戳），0 表示不计时。
      *
      * <p>前端拿它显示操作倒计时。</p>
@@ -45,6 +78,30 @@ public class PublicGameState {
 
     public Long getGameId() {
         return gameId;
+    }
+
+    public List<String> getSpeechHistory() {
+        return speechHistory;
+    }
+
+    public void setSpeechHistory(List<String> speechHistory) {
+        this.speechHistory = speechHistory;
+    }
+
+    public List<String> getVoteHistory() {
+        return voteHistory;
+    }
+
+    public void setVoteHistory(List<String> voteHistory) {
+        this.voteHistory = voteHistory;
+    }
+
+    public String getNightActor() {
+        return nightActor;
+    }
+
+    public void setNightActor(String nightActor) {
+        this.nightActor = nightActor;
     }
 
     public void setGameId(Long gameId) {
@@ -73,6 +130,14 @@ public class PublicGameState {
 
     public void setPhaseLabel(String phaseLabel) {
         this.phaseLabel = phaseLabel;
+    }
+
+    public long getStateSeq() {
+        return stateSeq;
+    }
+
+    public void setStateSeq(long stateSeq) {
+        this.stateSeq = stateSeq;
     }
 
     public int getRound() {
